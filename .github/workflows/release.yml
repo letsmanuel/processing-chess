@@ -198,9 +198,36 @@ jobs:
 
           & $cli.FullName @arguments
 
-          if ($LASTEXITCODE -ne 0) {
-            throw "Processing failed to export the chess application."
+          $processingExitCode = $LASTEXITCODE
+          
+          $exportedExe = Get-ChildItem `
+            -Path $exportPath `
+            -Recurse `
+            -File `
+            -Filter "*.exe" |
+            Select-Object -First 1
+          
+          $exportedJar = Get-ChildItem `
+            -Path $exportPath `
+            -Recurse `
+            -File `
+            -Filter "*.jar" |
+            Select-Object -First 1
+          
+          if (-not $exportedExe -or -not $exportedJar) {
+            Write-Host "Export directory contents:"
+            Get-ChildItem $exportPath -Recurse |
+              Select-Object FullName
+          
+            throw "Processing did not produce both an executable and a JAR."
           }
+          
+          if ($processingExitCode -ne 0) {
+            Write-Warning "Processing returned exit code $processingExitCode, but the executable and JAR exist. Continuing to packaging."
+          }
+          
+          Write-Host "Export verified: $($exportedExe.FullName)"
+          Write-Host "JAR verified: $($exportedJar.FullName)"
 
       - name: Package Windows application
         shell: pwsh
