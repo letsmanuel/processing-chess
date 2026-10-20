@@ -39,15 +39,15 @@ jobs:
           }
 
           if (-not $asset) {
-            Write-Host "Available Processing release assets:"
+            Write-Host "Available Processing assets:"
             $release.assets | ForEach-Object { Write-Host $_.name }
-            throw "Could not find a Windows x64 Processing ZIP."
+            throw "Could not find the Windows x64 Processing ZIP."
           }
-
-          Write-Host "Downloading $($asset.name)"
 
           $processingZip = Join-Path $env:RUNNER_TEMP "processing.zip"
           $processingDir = Join-Path $env:RUNNER_TEMP "processing-install"
+
+          Write-Host "Downloading $($asset.name)"
 
           Invoke-WebRequest `
             -Uri $asset.browser_download_url `
@@ -75,6 +75,8 @@ jobs:
             Select-Object -First 1
 
           if (-not $asset) {
+            Write-Host "Available Sound assets:"
+            $release.assets | ForEach-Object { Write-Host $_.name }
             throw "Could not find sound.zip in the official Processing Sound release."
           }
 
@@ -101,25 +103,17 @@ jobs:
             -Directory `
             -Recurse |
             Where-Object {
-              $_.Name -eq "sound" -and
-              (Test-Path (Join-Path $_.FullName "library"))
+              (Test-Path (Join-Path $_.FullName "library")) -and
+              (Test-Path (Join-Path $_.FullName "library.properties"))
             } |
             Select-Object -First 1
 
           if (-not $soundLibrary) {
-            $soundLibrary = Get-ChildItem `
-              -Path $soundExtract `
-              -Directory `
-              -Recurse |
-              Where-Object {
-                (Test-Path (Join-Path $_.FullName "library")) -and
-                (Test-Path (Join-Path $_.FullName "library.properties"))
-              } |
-              Select-Object -First 1
-          }
+            Write-Host "Extracted Sound library contents:"
+            Get-ChildItem $soundExtract -Recurse |
+              Select-Object FullName
 
-          if (-not $soundLibrary) {
-            throw "Could not locate the extracted Processing Sound library."
+            throw "Could not locate the Processing Sound library."
           }
 
           $sketchbook = Join-Path $env:USERPROFILE "Documents\Processing"
@@ -141,7 +135,7 @@ jobs:
             -Force
 
           if (-not (Test-Path (Join-Path $soundTarget "library"))) {
-            throw "The Processing Sound library was not installed correctly."
+            throw "Sound library installation failed."
           }
 
           Write-Host "Processing Sound library installed successfully."
@@ -153,7 +147,7 @@ jobs:
 
           $cli = Get-ChildItem `
             -Path $processingDir `
-            -Filter "processing.exe" `
+            -Filter "Processing.exe" `
             -File `
             -Recurse |
             Select-Object -First 1
@@ -168,11 +162,16 @@ jobs:
           }
 
           if (-not $cli) {
-            throw "Could not find the Processing command-line executable."
+            Write-Host "Downloaded Processing files:"
+            Get-ChildItem $processingDir -Recurse |
+              Select-Object FullName
+
+            throw "Could not find the Processing executable."
           }
 
           $sketchPath = $env:GITHUB_WORKSPACE
           $exportPath = Join-Path $env:RUNNER_TEMP "chess-export"
+          $logPath = Join-Path $env:RUNNER_TEMP "processing-export.log"
 
           if (Test-Path $exportPath) {
             Remove-Item $exportPath -Recurse -Force
@@ -186,7 +185,7 @@ jobs:
 
           $arguments = @()
 
-          if ($cli.Name -ieq "processing.exe") {
+          if ($cli.Name -ieq "Processing.exe") {
             $arguments += "cli"
           }
 
@@ -196,91 +195,111 @@ jobs:
           $arguments += "--force"
           $arguments += "--export"
 
-          & $cli.FullName @arguments
+          & $cli.FullName @arguments 2>&1 |
+            Tee-Object -FilePath $logPath
 
           $processingExitCode = $LASTEXITCODE
-          
+
+          Write-Host "Processing exit code: $processingExitCode"
+
           $exportedExe = Get-ChildItem `
             -Path $exportPath `
             -Recurse `
             -File `
-            -Filter "*.exe" |
+            -Filter "*.exe" `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.Name -ieq "processing-chess.exe"
+            } |
             Select-Object -First 1
-          
-          $exportedJar = Get-ChildItem `
+
+          if (-not $exportedExe) {
+            $exportedExe = Get-ChildItem `
+              -Path $exportPath `
+              -File `
+              -Filter "*.exe" `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+          }
+
+          if (-not $exportedExe) {
+            Write-Host "No Windows executable was found."
+            Write-Host "Files produced by Processing:"
+
+            if (Test-Path $exportPath) {
+              Get-ChildItem `
+                -Path $exportPath `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue |
+                Select-Object FullName, Length |
+                Format-Table -AutoSize
+            }
+
+            Write-Host "Processing log:"
+            if (Test-Path $logPath) {
+              Get-Content $logPath
+            }
+
+            throw "Processing did not produce a Windows executable."
+          }
+
+          if ($processingExitCode -ne 0) {
+            Write-Warning "Processing returned exit code $processingExitCode, but an executable exists. Inspect the exported files and log before treating the application as verified."
+          }
+
+          Write-Host "Found executable: $($exportedExe.FullName)"
+
+          Write-Host "Complete export contents:"
+          Get-ChildItem `
             -Path $exportPath `
             -Recurse `
-            -File `
-            -Filter "*.jar" |
-            Select-Object -First 1
-          
-          if (-not $exportedExe -or -not $exportedJar) {
-            Write-Host "Export directory contents:"
-            Get-ChildItem $exportPath -Recurse |
-              Select-Object FullName
-          
-            throw "Processing did not produce both an executable and a JAR."
-          }
-          
-          if ($processingExitCode -ne 0) {
-            Write-Warning "Processing returned exit code $processingExitCode, but the executable and JAR exist. Continuing to packaging."
-          }
-          
-          Write-Host "Export verified: $($exportedExe.FullName)"
-          Write-Host "JAR verified: $($exportedJar.FullName)"
+            -File |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
 
       - name: Package Windows application
         shell: pwsh
         run: |
           $exportPath = Join-Path $env:RUNNER_TEMP "chess-export"
-          $windowsPath = Join-Path $exportPath "windows-amd64"
-
-          $appExe = $null
-
-          if (Test-Path $windowsPath) {
-            $appExe = Get-ChildItem `
-              -Path $windowsPath `
-              -File `
-              -Filter "*.exe" |
-              Select-Object -First 1
-          }
-
-          if (-not $appExe) {
-            $appExe = Get-ChildItem `
-              -Path $exportPath `
-              -Recurse `
-              -File `
-              -Filter "*.exe" |
-              Where-Object {
-                $_.FullName -notmatch '(?i)[\\/](data|runtime|stockfish)[\\/]'
-              } |
-              Sort-Object { $_.FullName.Length } |
-              Select-Object -First 1
-          }
-
-          if (-not $appExe) {
-            throw "No exported Windows application executable was found."
-          }
-
-          $appDir = $appExe.Directory.FullName
           $archive = Join-Path $env:GITHUB_WORKSPACE "chess-windows.zip"
 
-          Write-Host "Application executable: $($appExe.FullName)"
-          Write-Host "Packaging application directory: $appDir"
+          if (-not (Test-Path $exportPath)) {
+            throw "The Processing export directory does not exist."
+          }
+
+          $files = Get-ChildItem `
+            -Path $exportPath `
+            -Recurse `
+            -File
+
+          if (-not ($files | Where-Object { $_.Extension -ieq ".exe" })) {
+            throw "The export contains no executable."
+          }
+
+          if ($files.Count -eq 0) {
+            throw "The Processing export is empty."
+          }
 
           if (Test-Path $archive) {
             Remove-Item $archive -Force
           }
 
+          Write-Host "Packaging the entire exported application."
+
           Compress-Archive `
-            -Path (Join-Path $appDir "*") `
+            -Path (Join-Path $exportPath "*") `
             -DestinationPath $archive `
             -CompressionLevel Optimal `
             -Force
 
           if (-not (Test-Path $archive)) {
-            throw "The Windows release archive was not created."
+            throw "Failed to create chess-windows.zip."
           }
+
+          Write-Host "Created release archive:"
+          Get-Item $archive |
+            Select-Object FullName, Length
 
       - name: Publish development release
         shell: pwsh
@@ -316,7 +335,11 @@ jobs:
           $version = "dev-$next"
           $archive = Join-Path $env:GITHUB_WORKSPACE "chess-windows.zip"
 
-          Write-Host "Publishing $version"
+          if (-not (Test-Path $archive)) {
+            throw "Release archive does not exist: $archive"
+          }
+
+          Write-Host "Publishing development release $version"
 
           gh release create $version $archive `
             --repo $env:GITHUB_REPOSITORY `
