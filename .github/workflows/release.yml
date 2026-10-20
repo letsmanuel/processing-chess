@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: chess-development-release
+  group: processing-chess-development-releases
   cancel-in-progress: false
 
 jobs:
@@ -29,15 +29,40 @@ jobs:
             -Uri "https://api.github.com/repos/processing/processing4/releases/latest"
 
           $asset = $release.assets |
-            Where-Object { $_.name -match '^processing-.*-windows-x64\.zip$' } |
+            Where-Object { $_.name -match 'windows-x64.*portable\.zip$' } |
             Select-Object -First 1
 
           if (-not $asset) {
-            throw "Could not find the Windows x64 Processing ZIP."
+            $asset = $release.assets |
+              Where-Object { $_.name -match 'windows-x64.*\.zip$' } |
+              Select-Object -First 1
           }
 
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile processing.zip
-          Expand-Archive processing.zip -DestinationPath processing -Force
+          if (-not $asset) {
+            Write-Host "Available Processing release assets:"
+            $release.assets | ForEach-Object { Write-Host $_.name }
+            throw "Could not find a Windows x64 Processing ZIP."
+          }
+
+          Write-Host "Downloading $($asset.name)"
+
+          $processingZip = Join-Path $env:RUNNER_TEMP "processing.zip"
+          $processingDir = Join-Path $env:RUNNER_TEMP "processing-install"
+
+          Invoke-WebRequest `
+            -Uri $asset.browser_download_url `
+            -OutFile $processingZip
+
+          if (Test-Path $processingDir) {
+            Remove-Item $processingDir -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $processingDir -Force | Out-Null
+
+          Expand-Archive `
+            -Path $processingZip `
+            -DestinationPath $processingDir `
+            -Force
 
       - name: Install Processing Sound library
         shell: pwsh
@@ -50,112 +75,229 @@ jobs:
             Select-Object -First 1
 
           if (-not $asset) {
-            throw "Could not find sound.zip in the Processing Sound release."
+            throw "Could not find sound.zip in the official Processing Sound release."
           }
 
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile sound.zip
-          Expand-Archive sound.zip -DestinationPath sound-extracted -Force
+          $soundZip = Join-Path $env:RUNNER_TEMP "sound.zip"
+          $soundExtract = Join-Path $env:RUNNER_TEMP "sound-extracted"
 
-          $sound = Get-ChildItem sound-extracted -Directory -Recurse |
+          Invoke-WebRequest `
+            -Uri $asset.browser_download_url `
+            -OutFile $soundZip
+
+          if (Test-Path $soundExtract) {
+            Remove-Item $soundExtract -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $soundExtract -Force | Out-Null
+
+          Expand-Archive `
+            -Path $soundZip `
+            -DestinationPath $soundExtract `
+            -Force
+
+          $soundLibrary = Get-ChildItem `
+            -Path $soundExtract `
+            -Directory `
+            -Recurse |
             Where-Object {
-              (Test-Path (Join-Path $_.FullName "library")) -or
-              (Test-Path (Join-Path $_.FullName "library.properties"))
+              $_.Name -eq "sound" -and
+              (Test-Path (Join-Path $_.FullName "library"))
             } |
             Select-Object -First 1
 
-          if (-not $sound) {
-            throw "Could not locate the Sound library."
+          if (-not $soundLibrary) {
+            $soundLibrary = Get-ChildItem `
+              -Path $soundExtract `
+              -Directory `
+              -Recurse |
+              Where-Object {
+                (Test-Path (Join-Path $_.FullName "library")) -and
+                (Test-Path (Join-Path $_.FullName "library.properties"))
+              } |
+              Select-Object -First 1
+          }
+
+          if (-not $soundLibrary) {
+            throw "Could not locate the extracted Processing Sound library."
           }
 
           $sketchbook = Join-Path $env:USERPROFILE "Documents\Processing"
           $libraries = Join-Path $sketchbook "libraries"
-          New-Item -ItemType Directory -Force -Path $libraries | Out-Null
+          $soundTarget = Join-Path $libraries "sound"
 
-          Copy-Item $sound.FullName (Join-Path $libraries "sound") -Recurse -Force
+          New-Item -ItemType Directory -Path $libraries -Force | Out-Null
 
-          "PROCESSING_SKETCHBOOK=$sketchbook" >> $env:GITHUB_ENV
+          if (Test-Path $soundTarget) {
+            Remove-Item $soundTarget -Recurse -Force
+          }
 
-      - name: Export Processing sketch
+          New-Item -ItemType Directory -Path $soundTarget -Force | Out-Null
+
+          Copy-Item `
+            -Path (Join-Path $soundLibrary.FullName "*") `
+            -Destination $soundTarget `
+            -Recurse `
+            -Force
+
+          if (-not (Test-Path (Join-Path $soundTarget "library"))) {
+            throw "The Processing Sound library was not installed correctly."
+          }
+
+          Write-Host "Processing Sound library installed successfully."
+
+      - name: Export Windows application
         shell: pwsh
         run: |
-          $cli = Get-ChildItem processing -Recurse -Filter processing-java.exe |
+          $processingDir = Join-Path $env:RUNNER_TEMP "processing-install"
+
+          $cli = Get-ChildItem `
+            -Path $processingDir `
+            -Filter "processing.exe" `
+            -File `
+            -Recurse |
             Select-Object -First 1
 
           if (-not $cli) {
-            throw "Could not locate processing-java.exe."
+            $cli = Get-ChildItem `
+              -Path $processingDir `
+              -Filter "processing-java.exe" `
+              -File `
+              -Recurse |
+              Select-Object -First 1
           }
 
-          $sketch = $env:GITHUB_WORKSPACE
-          $output = Join-Path $env:GITHUB_WORKSPACE "build\export"
+          if (-not $cli) {
+            throw "Could not find the Processing command-line executable."
+          }
 
-          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          $sketchPath = $env:GITHUB_WORKSPACE
+          $exportPath = Join-Path $env:RUNNER_TEMP "chess-export"
 
-          & $cli.FullName `
-            "--sketch=$sketch" `
-            "--output=$output" `
-            --force `
-            --export
+          if (Test-Path $exportPath) {
+            Remove-Item $exportPath -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $exportPath -Force | Out-Null
+
+          Write-Host "Processing executable: $($cli.FullName)"
+          Write-Host "Sketch: $sketchPath"
+          Write-Host "Export directory: $exportPath"
+
+          $arguments = @()
+
+          if ($cli.Name -ieq "processing.exe") {
+            $arguments += "cli"
+          }
+
+          $arguments += "--sketch=$sketchPath"
+          $arguments += "--output=$exportPath"
+          $arguments += "--variant=windows-amd64"
+          $arguments += "--force"
+          $arguments += "--export"
+
+          & $cli.FullName @arguments
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Processing export failed."
+            throw "Processing failed to export the chess application."
           }
 
       - name: Package Windows application
         shell: pwsh
         run: |
-          $export = Join-Path $env:GITHUB_WORKSPACE "build\export"
+          $exportPath = Join-Path $env:RUNNER_TEMP "chess-export"
+          $windowsPath = Join-Path $exportPath "windows-amd64"
 
-          $exe = Get-ChildItem $export -Recurse -Filter "*.exe" |
-            Select-Object -First 1
+          $appExe = $null
 
-          if (-not $exe) {
-            throw "No executable was produced by the export."
+          if (Test-Path $windowsPath) {
+            $appExe = Get-ChildItem `
+              -Path $windowsPath `
+              -File `
+              -Filter "*.exe" |
+              Select-Object -First 1
+          }
+
+          if (-not $appExe) {
+            $appExe = Get-ChildItem `
+              -Path $exportPath `
+              -Recurse `
+              -File `
+              -Filter "*.exe" |
+              Where-Object {
+                $_.FullName -notmatch '(?i)[\\/](data|runtime|stockfish)[\\/]'
+              } |
+              Sort-Object { $_.FullName.Length } |
+              Select-Object -First 1
+          }
+
+          if (-not $appExe) {
+            throw "No exported Windows application executable was found."
+          }
+
+          $appDir = $appExe.Directory.FullName
+          $archive = Join-Path $env:GITHUB_WORKSPACE "chess-windows.zip"
+
+          Write-Host "Application executable: $($appExe.FullName)"
+          Write-Host "Packaging application directory: $appDir"
+
+          if (Test-Path $archive) {
+            Remove-Item $archive -Force
           }
 
           Compress-Archive `
-            -Path "$($exe.Directory.FullName)\*" `
-            -DestinationPath "$env:GITHUB_WORKSPACE\chess-windows.zip" `
+            -Path (Join-Path $appDir "*") `
+            -DestinationPath $archive `
+            -CompressionLevel Optimal `
             -Force
 
-      - name: Generate development version
-        id: version
+          if (-not (Test-Path $archive)) {
+            throw "The Windows release archive was not created."
+          }
+
+      - name: Publish development release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $releases = gh release list `
-            --repo "${{ github.repository }}" `
-            --limit 100 `
-            --json tagName
+          $refs = git ls-remote --tags origin "refs/tags/dev-*"
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Could not retrieve existing releases."
+            throw "Could not retrieve existing development tags."
           }
 
           $numbers = @(
-            ($releases | ConvertFrom-Json) |
-              ForEach-Object {
-                if ($_.tagName -match '^dev-(\d+)$') {
+            $refs | ForEach-Object {
+              $parts = $_ -split '\s+'
+
+              if ($parts.Length -ge 2) {
+                $tag = $parts[1] -replace '\^\{\}$', ''
+
+                if ($tag -match '^refs/tags/dev-(\d+)$') {
                   [int]$Matches[1]
                 }
               }
+            }
           )
 
           $next = 1
+
           if ($numbers.Count -gt 0) {
             $next = ($numbers | Measure-Object -Maximum).Maximum + 1
           }
 
-          "version=dev-$next" >> $env:GITHUB_OUTPUT
+          $version = "dev-$next"
+          $archive = Join-Path $env:GITHUB_WORKSPACE "chess-windows.zip"
 
-      - name: Publish development release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.version.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          name: Chess ${{ steps.version.outputs.version }}
-          prerelease: true
-          generate_release_notes: true
-          files: chess-windows.zip
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+          Write-Host "Publishing $version"
+
+          gh release create $version $archive `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "Chess $version" `
+            --generate-notes `
+            --prerelease
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to publish GitHub development release $version."
+          }
