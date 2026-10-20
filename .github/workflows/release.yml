@@ -1,5 +1,5 @@
 
-name: Build and Release Chess
+name: Build and Update chess-dev
 
 on:
   push:
@@ -8,14 +8,13 @@ on:
     paths-ignore:
       - '*.md'
       - '**/*.md'
-
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: processing-chess-development-releases
+  group: processing-chess-development-release
   cancel-in-progress: false
 
 jobs:
@@ -79,8 +78,6 @@ jobs:
             Select-Object -First 1
 
           if (-not $asset) {
-            Write-Host "Available Sound assets:"
-            $release.assets | ForEach-Object { Write-Host $_.name }
             throw "Could not find sound.zip in the official Processing Sound release."
           }
 
@@ -107,17 +104,25 @@ jobs:
             -Directory `
             -Recurse |
             Where-Object {
-              (Test-Path (Join-Path $_.FullName "library")) -and
-              (Test-Path (Join-Path $_.FullName "library.properties"))
+              $_.Name -eq "sound" -and
+              (Test-Path (Join-Path $_.FullName "library"))
             } |
             Select-Object -First 1
 
           if (-not $soundLibrary) {
-            Write-Host "Extracted Sound library contents:"
-            Get-ChildItem $soundExtract -Recurse |
-              Select-Object FullName
+            $soundLibrary = Get-ChildItem `
+              -Path $soundExtract `
+              -Directory `
+              -Recurse |
+              Where-Object {
+                (Test-Path (Join-Path $_.FullName "library")) -and
+                (Test-Path (Join-Path $_.FullName "library.properties"))
+              } |
+              Select-Object -First 1
+          }
 
-            throw "Could not locate the Processing Sound library."
+          if (-not $soundLibrary) {
+            throw "Could not locate the extracted Processing Sound library."
           }
 
           $sketchbook = Join-Path $env:USERPROFILE "Documents\Processing"
@@ -139,7 +144,7 @@ jobs:
             -Force
 
           if (-not (Test-Path (Join-Path $soundTarget "library"))) {
-            throw "Sound library installation failed."
+            throw "The Processing Sound library was not installed correctly."
           }
 
           Write-Host "Processing Sound library installed successfully."
@@ -166,11 +171,7 @@ jobs:
           }
 
           if (-not $cli) {
-            Write-Host "Downloaded Processing files:"
-            Get-ChildItem $processingDir -Recurse |
-              Select-Object FullName
-
-            throw "Could not find the Processing executable."
+            throw "Could not find the Processing command-line executable."
           }
 
           $sketchPath = $env:GITHUB_WORKSPACE
@@ -199,10 +200,11 @@ jobs:
           $arguments += "--force"
           $arguments += "--export"
 
-          & $cli.FullName @arguments 2>&1 |
-            Tee-Object -FilePath $logPath
-
+          $processOutput = & $cli.FullName @arguments 2>&1
           $processingExitCode = $LASTEXITCODE
+
+          $processOutput | ForEach-Object { Write-Host "$_" }
+          $processOutput | Out-File -FilePath $logPath -Encoding utf8
 
           Write-Host "Processing exit code: $processingExitCode"
 
@@ -210,37 +212,35 @@ jobs:
             -Path $exportPath `
             -Recurse `
             -File `
-            -Filter "*.exe" `
+            -Filter "processing-chess.exe" `
             -ErrorAction SilentlyContinue |
-            Where-Object {
-              $_.Name -ieq "processing-chess.exe"
-            } |
             Select-Object -First 1
 
           if (-not $exportedExe) {
             $exportedExe = Get-ChildItem `
               -Path $exportPath `
+              -Recurse `
               -File `
               -Filter "*.exe" `
               -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.FullName -notmatch '(?i)[\\/](stockfish|runtime)[\\/]'
+              } |
               Select-Object -First 1
           }
 
           if (-not $exportedExe) {
-            Write-Host "No Windows executable was found."
-            Write-Host "Files produced by Processing:"
+            Write-Host "Export directory contents:"
 
-            if (Test-Path $exportPath) {
-              Get-ChildItem `
-                -Path $exportPath `
-                -Recurse `
-                -Force `
-                -ErrorAction SilentlyContinue |
-                Select-Object FullName, Length |
-                Format-Table -AutoSize
-            }
+            Get-ChildItem `
+              -Path $exportPath `
+              -Recurse `
+              -Force `
+              -ErrorAction SilentlyContinue |
+              Select-Object FullName, Length |
+              Format-Table -AutoSize
 
-            Write-Host "Processing log:"
+            Write-Host "Processing export log:"
             if (Test-Path $logPath) {
               Get-Content $logPath
             }
@@ -249,18 +249,10 @@ jobs:
           }
 
           if ($processingExitCode -ne 0) {
-            Write-Warning "Processing returned exit code $processingExitCode, but an executable exists. Inspect the exported files and log before treating the application as verified."
+            Write-Warning "Processing returned exit code $processingExitCode, but an executable exists. Continuing to packaging."
           }
 
           Write-Host "Found executable: $($exportedExe.FullName)"
-
-          Write-Host "Complete export contents:"
-          Get-ChildItem `
-            -Path $exportPath `
-            -Recurse `
-            -File |
-            Select-Object FullName, Length |
-            Format-Table -AutoSize
 
       - name: Package Windows application
         shell: pwsh
@@ -268,28 +260,57 @@ jobs:
           $exportPath = Join-Path $env:RUNNER_TEMP "chess-export"
           $archive = Join-Path $env:GITHUB_WORKSPACE "chess-windows.zip"
 
-          if (-not (Test-Path $exportPath)) {
-            throw "The Processing export directory does not exist."
-          }
-
-          $files = Get-ChildItem `
+          $appExe = Get-ChildItem `
             -Path $exportPath `
             -Recurse `
-            -File
+            -File `
+            -Filter "processing-chess.exe" `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
 
-          if (-not ($files | Where-Object { $_.Extension -ieq ".exe" })) {
-            throw "The export contains no executable."
+          if (-not $appExe) {
+            $appExe = Get-ChildItem `
+              -Path $exportPath `
+              -Recurse `
+              -File `
+              -Filter "*.exe" `
+              -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.FullName -notmatch '(?i)[\\/](stockfish|runtime)[\\/]'
+              } |
+              Select-Object -First 1
           }
 
+          if (-not $appExe) {
+            throw "The exported Windows executable could not be found."
+          }
+
+          $buildVersion = "1.0.0-dev.$($env:GITHUB_RUN_NUMBER).$($env:GITHUB_RUN_ATTEMPT)"
+          $builtAt = [DateTime]::UtcNow.ToString("o")
+          $buildInfo = Join-Path $exportPath ".build-info.txt"
+
+          @(
+            "channel=chess-dev"
+            "version=$buildVersion"
+            "commit=$env:GITHUB_SHA"
+            "run=$env:GITHUB_RUN_NUMBER"
+            "attempt=$env:GITHUB_RUN_ATTEMPT"
+            "built_utc=$builtAt"
+          ) | Set-Content -Path $buildInfo -Encoding utf8
+
+          Write-Host "Internal build version: $buildVersion"
+          Write-Host "Application executable: $($appExe.FullName)"
+          Write-Host "Packaging the complete export directory."
+
+          $files = Get-ChildItem -Path $exportPath -Recurse -File
+
           if ($files.Count -eq 0) {
-            throw "The Processing export is empty."
+            throw "The Processing export directory is empty."
           }
 
           if (Test-Path $archive) {
             Remove-Item $archive -Force
           }
-
-          Write-Host "Packaging the entire exported application."
 
           Compress-Archive `
             -Path (Join-Path $exportPath "*") `
@@ -302,56 +323,86 @@ jobs:
           }
 
           Write-Host "Created release archive:"
-          Get-Item $archive |
-            Select-Object FullName, Length
+          Get-Item $archive | Select-Object FullName, Length
 
-      - name: Publish development release
+      - name: Update chess-dev release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $refs = git ls-remote --tags origin "refs/tags/dev-*"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not retrieve existing development tags."
-          }
-
-          $numbers = @(
-            $refs | ForEach-Object {
-              $parts = $_ -split '\s+'
-
-              if ($parts.Length -ge 2) {
-                $tag = $parts[1] -replace '\^\{\}$', ''
-
-                if ($tag -match '^refs/tags/dev-(\d+)$') {
-                  [int]$Matches[1]
-                }
-              }
-            }
-          )
-
-          $next = 1
-
-          if ($numbers.Count -gt 0) {
-            $next = ($numbers | Measure-Object -Maximum).Maximum + 1
-          }
-
-          $version = "dev-$next"
           $archive = Join-Path $env:GITHUB_WORKSPACE "chess-windows.zip"
+          $buildVersion = "1.0.0-dev.$($env:GITHUB_RUN_NUMBER).$($env:GITHUB_RUN_ATTEMPT)"
 
           if (-not (Test-Path $archive)) {
-            throw "Release archive does not exist: $archive"
+            throw "Release archive does not exist."
           }
 
-          Write-Host "Publishing development release $version"
+          $notes = @"
+          Automated development build of Processing Chess.
 
-          gh release create $version $archive `
-            --repo $env:GITHUB_REPOSITORY `
-            --target $env:GITHUB_SHA `
-            --title "Chess $version" `
-            --generate-notes `
-            --prerelease
+          Download chess-windows.zip for the latest build. This development version may contain bugs.
+
+          <!-- internal-version: $buildVersion; commit: $env:GITHUB_SHA -->
+          "@
+
+          $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          $notes | Set-Content -Path $notesPath -Encoding utf8
+
+          Write-Host "Updating fixed tag chess-dev to $env:GITHUB_SHA"
+
+          git tag -f chess-dev $env:GITHUB_SHA
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Failed to publish GitHub development release $version."
+            throw "Could not update the local chess-dev tag."
           }
+
+          git push origin refs/tags/chess-dev --force
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not update the remote chess-dev tag."
+          }
+
+          gh release view chess-dev `
+            --repo $env:GITHUB_REPOSITORY `
+            *> $null
+
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+            Write-Host "Existing chess-dev release found. Replacing its asset."
+
+            gh release upload chess-dev $archive `
+              --repo $env:GITHUB_REPOSITORY `
+              --clobber
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to replace the chess-windows.zip release asset."
+            }
+
+            gh release edit chess-dev `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "chess-dev" `
+              --notes-file $notesPath `
+              --prerelease `
+              --verify-tag
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to update the chess-dev release details."
+            }
+          }
+          else {
+            Write-Host "Creating the initial chess-dev release."
+
+            gh release create chess-dev $archive `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "chess-dev" `
+              --notes-file $notesPath `
+              --prerelease `
+              --verify-tag
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to create the chess-dev release."
+            }
+          }
+
+          Write-Host "Successfully published the latest chess-dev build."
