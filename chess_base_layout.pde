@@ -40,7 +40,7 @@ int drawTick = 0;
 
 void setup() {
   size(600, 400);
-  windowTitle("Chess.Processing "+gameStatus.engineVersion+" startet.");
+  windowTitle("Chess.Processing "+gameStatus.engineVersion+" lädt.");
 
   PImage icon = loadImage("images/window-icon.png");
   surface.setIcon(icon);
