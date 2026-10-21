@@ -486,6 +486,8 @@ class LegalMoves {
       enPassantTarget = (from + toPOS) / 2;
       enPassantPawnField = toPOS;
     }
+    
+    //saveManager.save("recentData","lastMove",from+"\t"+toPOS,true);
 
     if (promotes) {
       if (showPromotionGUI) {

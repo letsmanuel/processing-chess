@@ -77,7 +77,7 @@ class SettingsRenderer {
     {"McCarthy", "MinMax Alpha-Beta Pruning"},
     {"Sebastian Lague", "CODE ADVENTURE: Chess"},
     {"Chess.com Team", "Sounds"},
-    {"und DU","Fürs Benutzen der App"}
+    {"und DU", "Fürs Benutzen der App"}
   };
 
   String[] creditsAi = {
@@ -87,6 +87,7 @@ class SettingsRenderer {
   void init() {
     playerIcon = loadShape("images/device-player.svg");
     botIcon = loadShape("images/device-bot.svg");
+    loadSettingsFromFile();
   }
 
   void rotateBy(float radiansToAdd) {
@@ -137,6 +138,38 @@ class SettingsRenderer {
     pendingBlackBot = gameStatus.enginePlayAsBlack;
     pendingTimeLimit = gameStatus.timeLimit;
     pendingThinkTime = gameStatus.stockfishMaxThinkingTime;
+  }
+
+  void loadSettingsFromFile() {
+    String value;
+
+    value = saveManager.load("userconfig", "engineMode");
+    pendingEngineMode = value != null ? parseInt(value) : 2;
+
+    value = saveManager.load("userconfig", "stockfishElo");
+    pendingElo = value != null ? parseInt(value) : 3200;
+
+    value = saveManager.load("userconfig", "enginePlayAsWhite");
+    pendingWhiteBot = value != null ? Boolean.parseBoolean(value) : false;
+
+    value = saveManager.load("userconfig", "enginePlayAsBlack");
+    pendingBlackBot = value != null ? Boolean.parseBoolean(value) : true;
+
+    value = saveManager.load("userconfig", "timeLimit");
+    pendingTimeLimit = value != null ? parseInt(value) : 600;
+
+    value = saveManager.load("userconfig", "stockfishMaxThinkingTime");
+    pendingThinkTime = value != null ? parseInt(value) : 500;
+
+    value = saveManager.load("userconfig", "playingFieldDesign");
+    gameStatus.playingFieldDesign = value != null ? parseInt(value) : 1;
+
+    gameStatus.engineMode = pendingEngineMode;
+    gameStatus.stockfishElo = pendingElo;
+    gameStatus.enginePlayAsWhite = pendingWhiteBot;
+    gameStatus.enginePlayAsBlack = pendingBlackBot;
+    gameStatus.timeLimit = pendingTimeLimit;
+    gameStatus.stockfishMaxThinkingTime = pendingThinkTime;
   }
 
   void resetPendingToDefaults() {
@@ -294,6 +327,15 @@ class SettingsRenderer {
     gameStatus.enginePlayAsBlack = pendingBlackBot;
     gameStatus.timeLimit = pendingTimeLimit;
     gameStatus.stockfishMaxThinkingTime = pendingThinkTime;
+
+    saveManager.save("userconfig", "engineMode", ""+pendingEngineMode, true);
+    saveManager.save("userconfig", "stockfishElo", ""+pendingElo, true);
+    saveManager.save("userconfig", "enginePlayAsWhite", ""+pendingWhiteBot, true);
+    saveManager.save("userconfig", "enginePlayAsBlack", ""+pendingBlackBot, true);
+    saveManager.save("userconfig", "timeLimit", ""+pendingTimeLimit, true);
+    saveManager.save("userconfig", "stockfishMaxThinkingTime", ""+pendingThinkTime, true);
+
+
     closeSettings();
   }
 
@@ -412,10 +454,15 @@ class SettingsRenderer {
     cy += 44;
   }
 
+  void applyPlayingFieldDesign(int design) {
+    gameStatus.playingFieldDesign = design;
+    saveManager.save("userconfig", "playingFieldDesign", ""+design, true);
+  }
+
   void pageLook() {
     section("Brett");
     ui.designPicker("design", "Brett-Design", colX(), cy, colW(), rendererBaseLayout.designs,
-      gameStatus.playingFieldDesign, (i) -> gameStatus.playingFieldDesign = i);
+      gameStatus.playingFieldDesign, (i) -> applyPlayingFieldDesign(i));
     cy += designPickerH;
 
     section("Menü");

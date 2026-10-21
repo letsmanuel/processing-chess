@@ -12,10 +12,13 @@ TimeRenderer timeRenderer = new TimeRenderer();
 LastMoveListRenderer lastMoveListRenderer = new LastMoveListRenderer();
 MoveRating moveRating = new MoveRating();
 SystemSpecifications systemSpecs = new SystemSpecifications();
+SaveManager saveManager = new SaveManager();
+
 
 GameStatus searchStatus = new GameStatus();
 LegalMoves searchLegal = new LegalMoves(searchStatus);
 ChessEngine searchEngine = new ChessEngine(searchStatus, searchLegal, new PositionEvaluator());
+
 
 StockfishBridge stockfish = new StockfishBridge();
 boolean smartMode = false;
@@ -59,6 +62,7 @@ void setup() {
   settingsRenderer.init();
   lastMoveListRenderer.init();
   moveRating.init(whiteTurn);
+  
 }
 
 boolean stockfishStartTried = false;
