@@ -66,6 +66,7 @@ class OverlayRenderer {
     legalMovesEngine.promotionPawn = 0;
     gameStatus.isDrawCurrently = false;
     gameStatus.halfMoveCounter = 0;
+    gameStatus.lossReason = "Schachmatt!";
 
     gameStatus.promotionChoice = 0;
     gameStatus.promotionPending = false;
@@ -249,7 +250,7 @@ class OverlayRenderer {
       fill(255);
       textAlign(LEFT, CENTER);
       textSize(25);
-      text("SCHACHMATT", panelX + 85, panelY + 32);
+      text(gameStatus.lossReason, panelX + 85, panelY + 32);
 
       textSize(40);
       text(winnerIsWhite ? "WEISS" : "SCHWARZ", panelX + 30, panelY + 125);

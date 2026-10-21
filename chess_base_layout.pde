@@ -83,6 +83,12 @@ void tickEngineSettings() {
   }
 }
 
+void outOfTime(boolean white) {
+  gameStatus.soundQueue = append(gameStatus.soundQueue, "check");
+  overlayRenderer.winnerIsWhite = !white;
+  gameStatus.lossReason = "Zeit vorbei!";
+  overlayRenderer.drawCheckmate();
+}
 
 void draw() {
   drawTick++;
@@ -171,6 +177,9 @@ void draw() {
   if (gameStatus.promotionChoice > 0) {
     legalMovesEngine.completePromotion();
   }
+
+  if (gameStatus.timeLimitWhite < 1) outOfTime(true);
+  if (gameStatus.timeLimitBlack < 1) outOfTime(false);
 
   moveRating.tickRatings();
 
@@ -278,7 +287,7 @@ void mousePressed() {
   }
 
   if (settingsRenderer.settingsOpen) settingsRenderer.onMousePressed();
-  
+
   if (overlayRenderer.pauseGameDueToAnimation) {
     buttonRenderer.handleMousePressed();
 

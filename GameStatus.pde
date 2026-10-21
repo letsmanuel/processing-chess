@@ -23,6 +23,7 @@ class GameStatus {
   boolean isLinux = false;
   
   String stockfishPath = "";
+  String lossReason = "";
 
   int[][] fieldObject = {
     {8, 9, 10, 11, 12, 10, 9, 8},
