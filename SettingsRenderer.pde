@@ -76,7 +76,8 @@ class SettingsRenderer {
   String[][] creditsThanks = {
     {"McCarthy", "MinMax Alpha-Beta Pruning"},
     {"Sebastian Lague", "CODE ADVENTURE: Chess"},
-    {"Chess.com Team", "Sounds"}
+    {"Chess.com Team", "Sounds"},
+    {"und DU","Fürs benutzen der App"}
   };
 
   String[] creditsAi = {
