@@ -53,7 +53,7 @@ void setup() {
   fill(0, 0, 0);
   text("CHESS.PROCESSING", (width/2) - (textWidth("CHESS.PROCESSING") / 2), (height/2)+100);
   textSize(15);
-  text("© Paul Stiassny", 10, height - 20);
+  text("© Paul Stia.", 10, height - 20);
 
   pieceRenderer.init();
   overlayRenderer.init();
