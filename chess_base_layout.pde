@@ -84,6 +84,8 @@ void tickEngineSettings() {
 }
 
 void outOfTime(boolean white) {
+  if (gameOver) return;
+  gameOver = true;
   gameStatus.soundQueue = append(gameStatus.soundQueue, "check");
   overlayRenderer.winnerIsWhite = !white;
   gameStatus.lossReason = "Zeit vorbei!";
