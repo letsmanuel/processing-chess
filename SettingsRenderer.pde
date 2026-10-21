@@ -81,7 +81,7 @@ class SettingsRenderer {
   };
 
   String[] creditsAi = {
-    "Generative KI wurde ausschlieslich für das Testen von Konzepten, sowie der Theorie hinter Chess Engines verwendet. Protoypen für UI wurden ebenfalls generiert, allerdings durch per Hand geschriebene ersetzt."
+    "Generative KI wurde ausschlieslich für das Testen von Konzepten, sowie der Theorie hinter Chess Engines verwendet. Protoypen für UI wurden ebenfalls generiert, allerdings durch per Hand geschriebene ersetzt. Systeme wie Code Rabbit wurden eingesetzt für die Fehlersuche!"
   };
 
   void init() {
@@ -419,7 +419,7 @@ class SettingsRenderer {
     cy += designPickerH;
 
     section("Menü");
-    ui.slider("panelAlpha", "Menü-Deckkraft", colX(), cy, colW(), 120, 255, 5, panelAlpha,
+    ui.slider("panelAlpha", "Einstellungen-Deckkraft", colX(), cy, colW(), 120, 255, 5, panelAlpha,
       (v) -> round(v / 255.0 * 100) + "%", (v) -> panelAlpha = v);
     cy += 44;
   }
@@ -486,7 +486,7 @@ class SettingsRenderer {
     creditBlock("Engines", creditsEngines);
     creditBlock("Technik", creditsTech);
     creditBlock("Dank an", creditsThanks);
-    section("KI-Nutzung");
+    section("Generative KI-Nutzung");
     for (int i = 0; i < creditsAi.length; i++) paragraph(creditsAi[i]);
   }
 
