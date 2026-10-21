@@ -77,11 +77,11 @@ class SettingsRenderer {
     {"McCarthy", "MinMax Alpha-Beta Pruning"},
     {"Sebastian Lague", "CODE ADVENTURE: Chess"},
     {"Chess.com Team", "Sounds"},
-    {"und DU","Fürs benutzen der App"}
+    {"und DU","Fürs Benutzen der App"}
   };
 
   String[] creditsAi = {
-    "Generative KI wurde ausschlieslich für das Testen von Konzepten, sowie der Theorie hinter Chess Engines verwendet. Protoypen für UI wurden ebenfalls generiert, allerdings durch per Hand geschriebene ersetzt. Systeme wie Code Rabbit wurden eingesetzt für die Fehlersuche!"
+    "Generative KI wurde ausschließlich zum Testen von Konzepten sowie der Theorie hinter Schach-Engines verwendet. Prototypen für die Benutzeroberfläche wurden ebenfalls generiert, allerdings durch von Hand geschriebene ersetzt. Systeme wie Code Rabbit wurden zur Fehlersuche eingesetzt!"
   };
 
   void init() {
