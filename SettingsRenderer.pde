@@ -162,13 +162,16 @@ class SettingsRenderer {
     pendingThinkTime = value != null ? parseInt(value) : 500;
 
     value = saveManager.load("userconfig", "playingFieldDesign");
-    gameStatus.playingFieldDesign = value != null ? parseInt(value) : 1;
+    int design = value != null ? parseInt(value) : 1;
+    gameStatus.playingFieldDesign = design >= 0 && design < rendererBaseLayout.designs.length ? design : 1;
 
     gameStatus.engineMode = pendingEngineMode;
     gameStatus.stockfishElo = pendingElo;
     gameStatus.enginePlayAsWhite = pendingWhiteBot;
     gameStatus.enginePlayAsBlack = pendingBlackBot;
     gameStatus.timeLimit = pendingTimeLimit;
+    gameStatus.timeLimitWhite = pendingTimeLimit;
+    gameStatus.timeLimitBlack = pendingTimeLimit;
     gameStatus.stockfishMaxThinkingTime = pendingThinkTime;
   }
 
