@@ -23,6 +23,30 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Processing sketch
+        shell: pwsh
+        run: |
+          $sketchPath = $env:GITHUB_WORKSPACE
+          $mainFile = Join-Path $sketchPath "chess_base_layout.pde"
+          $dataPath = Join-Path $sketchPath "data"
+
+          if (-not (Test-Path $mainFile -PathType Leaf)) {
+            throw "Main Processing file chess_base_layout.pde was not found in the repository root."
+          }
+
+          if (-not (Test-Path $dataPath -PathType Container)) {
+            throw "The data directory was not found in the repository root."
+          }
+
+          Write-Host "Main sketch: $mainFile"
+          Write-Host "Data directory: $dataPath"
+
+          Write-Host "Data directory contents:"
+          Get-ChildItem $dataPath -Recurse |
+            Select-Object FullName, Length
 
       - name: Download Processing through Cloudflare cache
         shell: pwsh
@@ -41,6 +65,7 @@ jobs:
           $processingZip = Join-Path $env:RUNNER_TEMP "processing.zip"
           $processingDir = Join-Path $env:RUNNER_TEMP "processing-install"
           $workerUrl = $env:PROCESSING_CACHE_URL.TrimEnd("/")
+
           $headers = @{
             Authorization = "Bearer $env:PROCESSING_CACHE_SECRET"
           }
@@ -52,12 +77,8 @@ jobs:
             -Headers $headers `
             -OutFile $processingZip
 
-          if (-not (Test-Path $processingZip)) {
-            throw "Processing ZIP was not downloaded."
-          }
-
-          if ((Get-Item $processingZip).Length -eq 0) {
-            throw "Processing ZIP is empty."
+          if (-not (Test-Path $processingZip) -or (Get-Item $processingZip).Length -eq 0) {
+            throw "Processing ZIP was not downloaded correctly."
           }
 
           if (Test-Path $processingDir) {
@@ -108,12 +129,8 @@ jobs:
             -Headers $headers `
             -OutFile $soundZip
 
-          if (-not (Test-Path $soundZip)) {
-            throw "Processing Sound ZIP was not downloaded."
-          }
-
-          if ((Get-Item $soundZip).Length -eq 0) {
-            throw "Processing Sound ZIP is empty."
+          if (-not (Test-Path $soundZip) -or (Get-Item $soundZip).Length -eq 0) {
+            throw "Processing Sound ZIP was not downloaded correctly."
           }
 
           if (Test-Path $soundExtract) {
@@ -213,10 +230,48 @@ jobs:
             throw "Could not find processing-java.exe or Processing.exe."
           }
 
-          $sketchPath = $env:GITHUB_WORKSPACE
+          $repositoryPath = $env:GITHUB_WORKSPACE
+          $sketchName = "chess_base_layout"
+          $sketchPath = Join-Path $env:RUNNER_TEMP $sketchName
           $exportPath = Join-Path $env:RUNNER_TEMP "chess-export"
           $stdoutPath = Join-Path $env:RUNNER_TEMP "processing-stdout.log"
           $stderrPath = Join-Path $env:RUNNER_TEMP "processing-stderr.log"
+
+          if (Test-Path $sketchPath) {
+            Remove-Item $sketchPath -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $sketchPath -Force | Out-Null
+
+          Copy-Item `
+            -Path (Join-Path $repositoryPath "chess_base_layout.pde") `
+            -Destination $sketchPath `
+            -Force
+
+          Copy-Item `
+            -Path (Join-Path $repositoryPath "data") `
+            -Destination $sketchPath `
+            -Recurse `
+            -Force
+
+          $sketchFile = Join-Path $sketchPath "chess_base_layout.pde"
+          $dataPath = Join-Path $sketchPath "data"
+
+          if (-not (Test-Path $sketchFile -PathType Leaf)) {
+            throw "The main PDE file was not copied into the Processing sketch."
+          }
+
+          if (-not (Test-Path $dataPath -PathType Container)) {
+            throw "The data directory was not copied into the Processing sketch."
+          }
+
+          Write-Host "Processing sketch directory: $sketchPath"
+          Write-Host "Main PDE file: $sketchFile"
+          Write-Host "Data directory: $dataPath"
+
+          Write-Host "Sketch files:"
+          Get-ChildItem $sketchPath -Recurse |
+            Select-Object FullName, Length
 
           if (Test-Path $exportPath) {
             Remove-Item $exportPath -Recurse -Force
@@ -242,11 +297,9 @@ jobs:
           $arguments += "--export"
 
           Write-Host "Processing executable: $($cli.FullName)"
-          Write-Host "Sketch: $sketchPath"
           Write-Host "Export directory: $exportPath"
           Write-Host "Arguments: $($arguments -join ' ')"
 
-          Write-Host "Processing version information:"
           if ($cli.Name -ieq "Processing.exe") {
             & $cli.FullName --help
             Write-Host "CLI help exit code: $LASTEXITCODE"
@@ -279,17 +332,30 @@ jobs:
 
           $exportedExe = Get-ChildItem `
             -Path $exportPath `
-            -Filter "processing-chess.exe" `
+            -Filter "$sketchName.exe" `
             -File `
             -Recurse `
             -ErrorAction SilentlyContinue |
             Select-Object -First 1
 
           if (-not $exportedExe) {
-            throw "Processing exited successfully but processing-chess.exe was not found."
+            Write-Host "Exported files:"
+            if (Test-Path $exportPath) {
+              Get-ChildItem $exportPath -Recurse |
+                Select-Object FullName
+            }
+
+            throw "Processing exited successfully but $sketchName.exe was not found."
+          }
+
+          $exportedData = Join-Path $exportedExe.Directory.FullName "data"
+
+          if (-not (Test-Path $exportedData -PathType Container)) {
+            throw "The exported application does not contain a data directory."
           }
 
           Write-Host "Export completed successfully: $($exportedExe.FullName)"
+          Write-Host "Exported data directory: $exportedData"
 
       - name: Package Windows application
         shell: pwsh
@@ -301,7 +367,7 @@ jobs:
             -Path $exportPath `
             -Recurse `
             -File `
-            -Filter "processing-chess.exe" `
+            -Filter "chess_base_layout.exe" `
             -ErrorAction SilentlyContinue |
             Select-Object -First 1
 
@@ -309,9 +375,16 @@ jobs:
             throw "The exported Windows executable could not be found."
           }
 
+          $appDirectory = $appExe.Directory.FullName
+          $dataDirectory = Join-Path $appDirectory "data"
+
+          if (-not (Test-Path $dataDirectory -PathType Container)) {
+            throw "The application data directory is missing."
+          }
+
           $buildVersion = "1.0.0-dev.$($env:GITHUB_RUN_NUMBER).$($env:GITHUB_RUN_ATTEMPT)"
           $builtAt = [DateTime]::UtcNow.ToString("o")
-          $buildInfo = Join-Path $exportPath ".build-info.txt"
+          $buildInfo = Join-Path $appDirectory ".build-info.txt"
 
           @(
             "channel=chess-dev"
@@ -324,24 +397,29 @@ jobs:
 
           Write-Host "Internal build version: $buildVersion"
           Write-Host "Executable: $($appExe.FullName)"
-          Write-Host "Packaging the complete export directory."
+          Write-Host "Packaging application directory: $appDirectory"
 
           if (Test-Path $archive) {
             Remove-Item $archive -Force
           }
 
           Compress-Archive `
-            -Path (Join-Path $exportPath "*") `
+            -Path (Join-Path $appDirectory "*") `
             -DestinationPath $archive `
             -CompressionLevel Optimal `
             -Force
 
-          if (-not (Test-Path $archive)) {
+          if (-not (Test-Path $archive) -or (Get-Item $archive).Length -eq 0) {
             throw "Failed to create chess-windows.zip."
           }
 
+          $zipContents = Get-Content -Path $archive -Raw -Encoding Byte
           Write-Host "Created archive:"
           Get-Item $archive | Select-Object FullName, Length
+
+          Write-Host "Application files included:"
+          Get-ChildItem $appDirectory -Recurse |
+            Select-Object FullName, Length
 
       - name: Update chess-dev release
         shell: pwsh
@@ -359,6 +437,9 @@ jobs:
           Automated development build of Processing Chess.
 
           Download chess-windows.zip for the latest build. This development version may contain bugs.
+
+          Version: $buildVersion
+          Commit: $env:GITHUB_SHA
 
           <!-- internal-version: $buildVersion; commit: $env:GITHUB_SHA -->
           "@
